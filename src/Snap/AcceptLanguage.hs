@@ -20,6 +20,7 @@ import Data.Attoparsec.ByteString.Char8(parseOnly,
                                         endOfLine)
 import Data.ByteString                 (ByteString)
 import Data.ByteString.Char8           (pack,unpack)
+import Data.Char                       (toLower)
 import Data.List                       (intersperse,isPrefixOf,find)
 import Control.Applicative             ((*>),(<$>),(<*>),(<|>))
 import Snap.Core                       (getsRequest,
@@ -48,7 +49,8 @@ matches :: String
         -> Maybe String 
         -> Bool
 matches _ Nothing = True
-matches provided (Just requested) = requested `isPrefixOf` provided
+matches provided (Just requested) = 
+  (map toLower requested) `isPrefixOf` (map toLower provided)
 
 candidates :: [(String,a)]
            -> [(Maybe String, Double)]
