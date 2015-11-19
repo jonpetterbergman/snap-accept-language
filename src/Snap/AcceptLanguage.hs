@@ -1,6 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Snap.AcceptLanguage where
+module Snap.AcceptLanguage 
+  ( setLanguageToCookie
+  , getSnapLanguage 
+  ) where
 
 import Data.Attoparsec.ByteString.Char8(parseOnly,
                                         string,
@@ -15,14 +18,17 @@ import Data.Attoparsec.ByteString.Char8(parseOnly,
                                         sepBy,
                                         skipSpace,
                                         endOfLine)
-import Data.ByteString(ByteString)
-import Data.ByteString.Char8(pack,unpack)
-
-import Control.Applicative((*>),(<$>),(<*>),(<|>))
-
-import Data.List (intersperse,isPrefixOf,find)
-
-import Snap.Core(getsRequest,getHeader,Snap,Cookie(..),addResponseCookie,modifyResponse,getCookie,setHeader)
+import Data.ByteString                 (ByteString)
+import Data.ByteString.Char8           (pack,unpack)
+import Data.List                       (intersperse,isPrefixOf,find)
+import Control.Applicative             ((*>),(<$>),(<*>),(<|>))
+import Snap.Core                       (getsRequest,
+                                        getHeader,
+                                        Snap,Cookie(..),
+                                        addResponseCookie,
+                                        modifyResponse,
+                                        getCookie,
+                                        setHeader)
 
 range :: Parser String
 range = (++) <$> mletters <*> (fmap concat $ many' $ (:) <$> (char '-') <*> mletters)
