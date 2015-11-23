@@ -2,7 +2,7 @@
 
 module Snap.AcceptLanguage 
   ( setLanguageToCookie
-  , getSnapLanguage 
+  , getLanguage 
   ) where
 
 import Data.Attoparsec.ByteString.Char8(parseOnly,
@@ -96,20 +96,20 @@ readLanguageCookie =
       Just [(val,_)] -> return $ Just val
       _              -> return Nothing
 
-getSnapLanguage' :: Read a
+getLanguage' :: Read a
                  => a
                  -> [(String,a)]
                  -> Snap a
-getSnapLanguage' def provided =
+getLanguage' def provided =
   readLanguageCookie >>=
   maybe (snapLanguage def provided) return
 
-getSnapLanguage :: (Read a,Eq a)
+getLanguage :: (Read a,Eq a)
                 => a
                 -> [(String,a)]
                 -> Snap a
-getSnapLanguage def provided =
+getLanguage def provided =
   do
-    lang <- getSnapLanguage' def provided
+    lang <- getLanguage' def provided
     maybe (return ()) (modifyResponse . setHeader "ContentLanguage" . pack . fst) $ find ((==) lang . snd) provided
     return lang
