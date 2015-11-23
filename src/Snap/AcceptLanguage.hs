@@ -1,4 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
+-- |
+-- Handling of the Accept-Language header for Snap
 
 module Snap.AcceptLanguage 
   ( setLanguageToCookie
@@ -29,7 +31,8 @@ import Snap.Core                       (getsRequest,
                                         addResponseCookie,
                                         modifyResponse,
                                         getCookie,
-                                        setHeader)
+                                        setHeader,
+                                        pass)
 
 range :: Parser String
 range = (++) <$> mletters <*> (fmap concat $ many' $ (:) <$> (char '-') <*> mletters)
@@ -58,58 +61,60 @@ candidates :: [(String,a)]
 candidates provided requested = concatMap go provided
   where go (range,x) = map (\(a,b) -> (x,b)) $ filter (matches range . fst) requested
 
-pickLanguage' :: a
-             -> [(String,a)]
-             -> [(Maybe String,Double)]
-             -> a
-pickLanguage' def provided requested = fst $ foldr go (def,0) $ candidates provided requested
-  where go r'@(val',q') r@(val,q) | q' > q    = r'
-                                  | otherwise = r 
+pickLanguage' :: [(String,a)]
+              -> [(Maybe String,Double)]
+              -> Maybe a
+pickLanguage' provided requested = fmap fst $ foldr go Nothing $ candidates provided requested
+  where go r'           Nothing                      = return r'
+        go r'@(val',q') (Just r@(val,q)) | q' > q    = return r'
+                                         | otherwise = return r 
 
-pickLanguage :: a
-             -> [(String,a)]
+pickLanguage :: [(String,a)]
              -> ByteString
-             -> a
-pickLanguage def provided headerString = 
-  either (const def) (pickLanguage' def provided) $ parseOnly acceptLanguageParser headerString
+             -> Maybe a
+pickLanguage provided headerString = 
+  either (const Nothing) (pickLanguage' provided) $ parseOnly acceptLanguageParser headerString
 
-snapLanguage :: a
-             -> [(String,a)]
+snapLanguage :: [(String,a)]
              -> Snap a
-snapLanguage def provided =
+snapLanguage provided =
   do
     al <- getsRequest $ getHeader "Accept-Language"
-    return $ maybe def (pickLanguage def provided) al
+    maybe pass return $ al >>= pickLanguage provided
 
-setLanguageToCookie :: Show a
-                    => a
+-- | Your own internal representation of a language should have
+-- Eq, Read and Show instances. Also the following should hold true:
+--
+-- > (read $ show x) == x
+class (Eq a,Read a,Show a) => Language a
+
+-- | Set the language to a cookie. If this cookie is set it will override 
+-- anything in Accept-Language.
+-- The idea is that you use this when the user makes a choice in your
+-- application to use a specific language.
+setLanguageToCookie :: Language a
+                    => a -- ^ the language to set in the cookie.
                     -> Snap ()
 setLanguageToCookie val =
   modifyResponse $ addResponseCookie $ Cookie "snapLanguage" (pack $ show val) Nothing Nothing Nothing False False
 
 readLanguageCookie :: Read a
-                   => Snap (Maybe a)
+                   => Snap a
 readLanguageCookie =
   do
     c <- getCookie "snapLanguage"
     case fmap (reads . unpack . cookieValue) c of
-      Just [(val,_)] -> return $ Just val
-      _              -> return Nothing
+      Just [(val,_)] -> return val
+      _              -> pass
 
-getLanguage' :: Read a
-                 => a
-                 -> [(String,a)]
-                 -> Snap a
-getLanguage' def provided =
-  readLanguageCookie >>=
-  maybe (snapLanguage def provided) return
-
-getLanguage :: (Read a,Eq a)
-                => a
-                -> [(String,a)]
-                -> Snap a
+-- | Get the language to use. getLanguage will first look for the language
+-- cookie, otherwise it will look into the Accept-Language header.
+getLanguage :: Language a
+            => a            -- ^ a default language.
+            -> [(String,a)] -- ^ a mapping from language ranges (rfc2616) to languages in your representation.
+            -> Snap a
 getLanguage def provided =
   do
-    lang <- getLanguage' def provided
+    lang <- readLanguageCookie <|> snapLanguage provided <|> return def
     maybe (return ()) (modifyResponse . setHeader "ContentLanguage" . pack . fst) $ find ((==) lang . snd) provided
     return lang
