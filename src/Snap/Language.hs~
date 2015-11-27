@@ -1,13 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 -- |
--- Language handling for Snap
+-- Handling of the Accept-Language header for Snap
 
-module Snap.Language 
-  ( Language(..)
-  , acceptLanguage
+module Snap.AcceptLanguage 
+  ( Language
+  , RangeMapping
   , getLanguage
   , setLanguageToCookie
-  , readLanguageCookie
   ) where
 
 import Data.Attoparsec.ByteString.Char8(parseOnly,
@@ -62,13 +61,13 @@ matches _ Nothing = True
 matches provided (Just requested) = 
   (map toLower requested) `isPrefixOf` (map toLower provided)
 
-candidates :: Map String a
+candidates :: RangeMapping a
            -> [(Maybe String, Double)]
            -> [(a,Double)]
 candidates provided requested = concatMap go $ toList provided
   where go (range,x) = map (\(a,b) -> (x,b)) $ filter (matches range . fst) requested
 
-pickLanguage' :: Map String a
+pickLanguage' :: RangeMapping a
               -> [(Maybe String,Double)]
               -> Maybe a
 pickLanguage' provided requested = fmap fst $ foldr go Nothing $ candidates provided requested
@@ -76,21 +75,19 @@ pickLanguage' provided requested = fmap fst $ foldr go Nothing $ candidates prov
         go r'@(val',q') (Just r@(val,q)) | q' > q    = return r'
                                          | otherwise = return r 
 
-pickLanguage :: Map String a
+pickLanguage :: RangeMapping a
              -> ByteString
              -> Maybe a
 pickLanguage provided headerString = 
   either (const Nothing) (pickLanguage' provided) $ parseOnly acceptLanguageParser headerString
 
--- | Attempt to find a suitable language according to the Accept-Language
--- header of the request. This handler will call pass if it cannot find a
--- suitable language.
-acceptLanguage :: (Language a, MonadSnap m)
-               => m a
-acceptLanguage =
+snapLanguage :: MonadSnap m
+             => RangeMapping a
+             -> m a
+snapLanguage provided =
   do
     al <- getsRequest $ getHeader "Accept-Language"
-    maybe pass return $ al >>= pickLanguage rangeMapping
+    maybe pass return $ al >>= pickLanguage provided
 
 -- | Your own internal representation of a language should have
 -- Eq, Read and Show instances. Also the following should hold true:
@@ -99,7 +96,10 @@ acceptLanguage =
 -- 
 -- The basic idea is to use a sum type and just derive all the instances.
 class (Eq a,Read a,Show a) => Language a
-  where rangeMapping :: Map String a -- ^ A Mapping from language ranges as defined in rfc2616 to languages in your own representation.
+
+-- | A Mapping from language ranges as defined in rfc2616 to languages
+-- in your own representation.
+type RangeMapping a = Map String a
 
 -- | Set the language to a cookie. If this cookie is set it will override 
 -- anything in Accept-Language.
@@ -111,8 +111,7 @@ setLanguageToCookie :: (MonadSnap m, Language a)
 setLanguageToCookie val =
   modifyResponse $ addResponseCookie $ Cookie "snapLanguage" (pack $ show val) Nothing Nothing Nothing False False
 
--- | Attempt to read the language from a cookie. Uses Read to read the cookie.
-readLanguageCookie :: (MonadSnap m, Language a)
+readLanguageCookie :: (MonadSnap m, Read a)
                    => m a
 readLanguageCookie =
   do
@@ -123,9 +122,10 @@ readLanguageCookie =
 
 setContentLanguage :: (MonadSnap m, Language a)
                    => a
+                   -> RangeMapping a
                    -> m ()
-setContentLanguage val =
- maybe (return ()) go $ lookup val $ map swap $ toList rangeMapping
+setContentLanguage val provided =
+ maybe (return ()) go $ lookup val $ map swap $ toList provided
    where go = modifyResponse . setHeader "Content-Language" . pack
 
 -- | Get the language to use. getLanguage will first look for the language
@@ -133,9 +133,10 @@ setContentLanguage val =
 -- Will also try to set Content-Language in the Repsonse.
 getLanguage :: (MonadSnap m, Language a)
             => a              -- ^ a default language.
+            -> RangeMapping a 
             -> m a
-getLanguage def =
+getLanguage def provided =
   do
-    lang <- readLanguageCookie <|> acceptLanguage <|> return def
-    setContentLanguage lang 
+    lang <- readLanguageCookie <|> snapLanguage provided <|> return def
+    maybe (return ()) (modifyResponse . setHeader "Content-Language" . pack . fst) $ find ((==) lang . snd) $ toList provided
     return lang
