@@ -1,8 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 -- |
--- Handling of the Accept-Language header for Snap
+-- Language handling for Snap
 
-module Snap.AcceptLanguage 
+module Snap.Language 
   ( Language
   , RangeMapping
   , getLanguage
