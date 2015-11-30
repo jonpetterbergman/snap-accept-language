@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 -- |
--- Language handling for Snap
+-- Language handling for Snap.
+--
+-- Support for determining the client's prefered language using
+-- the Accept-Language header or using suffixes to the requested URI.
 
 module Snap.Language 
   ( RangeMapping
@@ -91,8 +94,9 @@ pickLanguage provided headerString =
   either (const Nothing) (pickLanguage' provided) $ parseOnly acceptLanguageParser headerString
 
 -- | Attempt to find a suitable language according to the Accept-Language
--- header of the request. This handler will call pass if it cannot find a
--- suitable language.
+-- header of the request. 
+--
+-- This handler will call pass if it cannot find a suitable language.
 getAcceptLanguage :: MonadSnap m
                    => RangeMapping a
                    -> m a
@@ -101,7 +105,14 @@ getAcceptLanguage rangeMapping =
     al <- getsRequest $ getHeader "Accept-Language"
     maybe pass return $ al >>= pickLanguage rangeMapping
 
--- | A Mapping from language ranges as defined in rfc2616 to languages in your own representation.
+-- | A mapping from language ranges as defined in rfc2616 to languages in your own representation.
+-- 
+-- For example:
+--
+-- > data Language = EN | SV deriving Eq
+-- > 
+-- > mapping :: RangeMapping Language
+-- > mapping = Map.fromList [("en-gb",EN),("sv-se",SV)]
 type RangeMapping a = Map String a
 
 removeSuffix :: ByteString
@@ -121,9 +132,20 @@ matchSuffix :: ByteString
 matchSuffix str sfxs = listToMaybe $ mapMaybe go sfxs
   where go (sfx,val) = fmap (,val) $ removeSuffix sfx str
 
--- | Attempt to find a suitable language according to a URI suffix corresponding to a language range.
+-- | Attempt to find a suitable language according to a suffix in the request URI corresponding to a language range.
+--
 -- Will call pass if it cannot find a suitable language.
--- If a match is found, the suffix will be removed from the URI in the request.
+--
+-- If a match is found, the suffix will be removed from the URI in the request, so that you
+-- can later match on your resource as usual and not worry about suffixes.
+--
+-- For example, with the following requested URI:
+-- 
+-- > /resource.en-gb?param=value
+--
+-- 'getSuffixLanguage' with our previously defined mapping will return 'EN' and 'rqPathInfo' will be changed to:
+--
+-- > /resource?param=value
 getSuffixLanguage :: MonadSnap m
                   => RangeMapping a
                   -> m a
