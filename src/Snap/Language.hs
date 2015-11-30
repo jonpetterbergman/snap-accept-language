@@ -1,13 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 -- |
 -- Language handling for Snap
 
 module Snap.Language 
-  ( Language(..)
+  ( RangeMapping
   , getAcceptLanguage
   , getSuffixLanguage
+  , switchSuffixLanguage
   , setContentLanguage
   ) where
 
@@ -93,16 +93,16 @@ pickLanguage provided headerString =
 -- | Attempt to find a suitable language according to the Accept-Language
 -- header of the request. This handler will call pass if it cannot find a
 -- suitable language.
-getAcceptLanguage :: (Language a, MonadSnap m)
-               => m a
-getAcceptLanguage =
+getAcceptLanguage :: MonadSnap m
+                   => RangeMapping a
+                   -> m a
+getAcceptLanguage rangeMapping =
   do
     al <- getsRequest $ getHeader "Accept-Language"
     maybe pass return $ al >>= pickLanguage rangeMapping
 
--- | Your own internal representation of a language.
-class Eq a => Language a
-  where rangeMapping :: Map String a -- ^ A Mapping from language ranges as defined in rfc2616 to languages in your own representation.
+-- | A Mapping from language ranges as defined in rfc2616 to languages in your own representation.
+type RangeMapping a = Map String a
 
 removeSuffix :: ByteString
              -> ByteString
@@ -110,9 +110,9 @@ removeSuffix :: ByteString
 removeSuffix suf x | suf `B.isSuffixOf` x = Just $ B.take ((B.length x) - (B.length suf)) x
                    | otherwise            = Nothing
 
-suffixes :: Language a
-         => [(ByteString,a)]
-suffixes = map go $ toList rangeMapping 
+suffixes :: RangeMapping a
+         -> [(ByteString,a)]
+suffixes = map go . toList
   where go (str,val) = (BC.pack $ '.':str,val)
 
 matchSuffix :: ByteString
@@ -124,34 +124,37 @@ matchSuffix str sfxs = listToMaybe $ mapMaybe go sfxs
 -- | Attempt to find a suitable language according to a suffix URI.
 -- Will call pass if it cannot find a suitable language.
 -- If a match is found, the suffix will be removed from the URI in the request.
-getSuffixLanguage :: (Language a, MonadSnap m)
-                  => m a
-getSuffixLanguage = 
+getSuffixLanguage :: MonadSnap m
+                  => RangeMapping a
+                  -> m a
+getSuffixLanguage rangeMapping = 
   do
     r <- getRequest
-    case matchSuffix (rqPathInfo r) suffixes of
+    case matchSuffix (rqPathInfo r) $ suffixes rangeMapping of
       Nothing -> pass
       Just (rqPathInfo',val) -> 
         do
           putRequest $ r { rqPathInfo = rqPathInfo' }
           return val
 
-
-switchSuffixLanguage :: Language a
-                     => ByteString
-		     -> Maybe a
+-- | Change, or remove, the language suffix of an url.
+switchSuffixLanguage :: Eq a
+                     => RangeMapping a
+                     -> ByteString -- ^ The URL.
+                     -> Maybe a    -- ^ The language to be appended to the URL, or Nothing to remove language suffix.
                      -> ByteString
-switchSuffixLanguage uri (lang :: Maybe a) = maybe (addSuffix lang path) (addSuffix lang . fst) $ matchSuffix path (suffixes :: [(ByteString,a)])
+switchSuffixLanguage rangeMapping uri lang = maybe (addSuffix lang path) (addSuffix lang . fst) $ matchSuffix path $ suffixes rangeMapping
   where (path,params)    = BC.break ((==) '?') uri
         addSuffix lang p = B.concat [p,findSfx lang,params]
         findSfx Nothing  = B.empty
-        findSfx (Just l) = maybe B.empty id $ lookup l $ map swap suffixes
+        findSfx (Just l) = maybe B.empty id $ lookup l $ map swap $ suffixes rangeMapping
 
 -- | Set the Content-Language header in the response.
-setContentLanguage :: (Language a, MonadSnap m)
-                   => a
+setContentLanguage :: (Eq a, MonadSnap m)
+                   => RangeMapping a
+                   -> a
                    -> m ()
-setContentLanguage val =
+setContentLanguage rangeMapping val =
  maybe (return ()) go $ lookup val $ map swap $ toList rangeMapping
    where go = modifyResponse . setHeader "Content-Language" . BC.pack
 
