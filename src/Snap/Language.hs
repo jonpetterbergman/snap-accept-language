@@ -121,7 +121,7 @@ matchSuffix :: ByteString
 matchSuffix str sfxs = listToMaybe $ mapMaybe go sfxs
   where go (sfx,val) = fmap (,val) $ removeSuffix sfx str
 
--- | Attempt to find a suitable language according to a suffix URI.
+-- | Attempt to find a suitable language according to a URI suffix corresponding to a language range.
 -- Will call pass if it cannot find a suitable language.
 -- If a match is found, the suffix will be removed from the URI in the request.
 getSuffixLanguage :: MonadSnap m
