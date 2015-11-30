@@ -1,45 +1,53 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |
 -- Language handling for Snap
 
 module Snap.Language 
   ( Language(..)
-  , acceptLanguage
-  , getLanguage
-  , setLanguageToCookie
-  , readLanguageCookie
+  , getAcceptLanguage
+  , getSuffixLanguage
+  , setContentLanguage
   ) where
 
-import Data.Attoparsec.ByteString.Char8(parseOnly,
-                                        string,
-                                        double,
-                                        Parser,
-                                        letter_ascii,
-                                        many1,
-                                        many',
-                                        char,
-                                        option,
-                                        eitherP,
-                                        sepBy,
-                                        skipSpace,
-                                        endOfLine)
-import Data.ByteString                 (ByteString)
-import Data.ByteString.Char8           (pack,unpack)
-import Data.Char                       (toLower)
-import Data.List                       (intersperse,isPrefixOf,find)
-import Control.Applicative             ((*>),(<$>),(<*>),(<|>))
-import Snap.Core                       (getsRequest,
-                                        getHeader,
-                                        MonadSnap,
-                                        Cookie(..),
-                                        addResponseCookie,
-                                        modifyResponse,
-                                        getCookie,
-                                        setHeader,
-                                        pass)
-import Data.Map                        (Map,
-                                        toList)
-import Data.Tuple                      (swap)
+import           Data.Attoparsec.ByteString.Char8(parseOnly,
+                                                  string,
+                                                  double,
+                                                  Parser,
+                                                  letter_ascii,
+                                                  many1,
+                                                  many',
+                                                  char,
+                                                  option,
+                                                  eitherP,
+                                                  sepBy,
+                                                  skipSpace,
+                                                  endOfLine)
+import           Data.ByteString                 (ByteString,
+                                                  isSuffixOf)
+import qualified Data.ByteString               as B
+import qualified Data.ByteString.Char8         as BC
+import           Data.Char                       (toLower)
+import           Data.List                       (intersperse,isPrefixOf,find)
+import           Control.Applicative             ((*>),(<$>),(<*>),(<|>))
+import           Snap.Core                       (getsRequest,
+                                                  getRequest,
+                                                  putRequest,
+                                                  getHeader,
+                                                  MonadSnap,
+                                                  Cookie(..),
+                                                  addResponseCookie,
+                                                  modifyResponse,
+                                                  getCookie,
+                                                  setHeader,
+                                                  pass,
+                                                  rqPathInfo)
+import           Data.Maybe                      (mapMaybe,
+                                                  listToMaybe)
+import           Data.Map                        (Map,
+                                                  toList)
+import           Data.Tuple                      (swap)
 
 range :: Parser String
 range = (++) <$> mletters <*> (fmap concat $ many' $ (:) <$> (char '-') <*> mletters)
@@ -85,57 +93,65 @@ pickLanguage provided headerString =
 -- | Attempt to find a suitable language according to the Accept-Language
 -- header of the request. This handler will call pass if it cannot find a
 -- suitable language.
-acceptLanguage :: (Language a, MonadSnap m)
+getAcceptLanguage :: (Language a, MonadSnap m)
                => m a
-acceptLanguage =
+getAcceptLanguage =
   do
     al <- getsRequest $ getHeader "Accept-Language"
     maybe pass return $ al >>= pickLanguage rangeMapping
 
--- | Your own internal representation of a language should have
--- Eq, Read and Show instances. Also the following should hold true:
---
--- > (read $ show x) == x
--- 
--- The basic idea is to use a sum type and just derive all the instances.
-class (Eq a,Read a,Show a) => Language a
+-- | Your own internal representation of a language.
+class Eq a => Language a
   where rangeMapping :: Map String a -- ^ A Mapping from language ranges as defined in rfc2616 to languages in your own representation.
 
--- | Set the language to a cookie. If this cookie is set it will override 
--- anything in Accept-Language.
--- The idea is that you use this when the user makes a choice in your
--- application to use a specific language.
-setLanguageToCookie :: (MonadSnap m, Language a)
-                    => a -- ^ the language to set in the cookie.
-                    -> m ()
-setLanguageToCookie val =
-  modifyResponse $ addResponseCookie $ Cookie "snapLanguage" (pack $ show val) Nothing Nothing Nothing False False
+removeSuffix :: ByteString
+             -> ByteString
+             -> Maybe ByteString
+removeSuffix suf x | suf `B.isSuffixOf` x = Just $ B.take ((B.length x) - (B.length suf)) x
+                   | otherwise            = Nothing
 
--- | Attempt to read the language from a cookie. Uses Read to read the cookie.
-readLanguageCookie :: (MonadSnap m, Language a)
-                   => m a
-readLanguageCookie =
+suffixes :: Language a
+         => [(ByteString,a)]
+suffixes = map go $ toList rangeMapping 
+  where go (str,val) = (BC.pack $ '.':str,val)
+
+matchSuffix :: ByteString
+            -> [(ByteString,a)]
+            -> Maybe (ByteString,a)
+matchSuffix str sfxs = listToMaybe $ mapMaybe go sfxs
+  where go (sfx,val) = fmap (,val) $ removeSuffix sfx str
+
+-- | Attempt to find a suitable language according to a suffix URI.
+-- Will call pass if it cannot find a suitable language.
+-- If a match is found, the suffix will be removed from the URI in the request.
+getSuffixLanguage :: (Language a, MonadSnap m)
+                  => m a
+getSuffixLanguage = 
   do
-    c <- getCookie "snapLanguage"
-    case fmap (reads . unpack . cookieValue) c of
-      Just [(val,_)] -> return val
-      _              -> pass
+    r <- getRequest
+    case matchSuffix (rqPathInfo r) suffixes of
+      Nothing -> pass
+      Just (rqPathInfo',val) -> 
+        do
+          putRequest $ r { rqPathInfo = rqPathInfo' }
+          return val
 
-setContentLanguage :: (MonadSnap m, Language a)
+
+switchSuffixLanguage :: Language a
+                     => ByteString
+		     -> Maybe a
+                     -> ByteString
+switchSuffixLanguage uri (lang :: Maybe a) = maybe (addSuffix lang path) (addSuffix lang . fst) $ matchSuffix path (suffixes :: [(ByteString,a)])
+  where (path,params)    = BC.break ((==) '?') uri
+        addSuffix lang p = B.concat [p,findSfx lang,params]
+        findSfx Nothing  = B.empty
+        findSfx (Just l) = maybe B.empty id $ lookup l $ map swap suffixes
+
+-- | Set the Content-Language header in the response.
+setContentLanguage :: (Language a, MonadSnap m)
                    => a
                    -> m ()
 setContentLanguage val =
  maybe (return ()) go $ lookup val $ map swap $ toList rangeMapping
-   where go = modifyResponse . setHeader "Content-Language" . pack
+   where go = modifyResponse . setHeader "Content-Language" . BC.pack
 
--- | Get the language to use. getLanguage will first look for the language
--- cookie, otherwise it will look into the Accept-Language header.
--- Will also try to set Content-Language in the Repsonse.
-getLanguage :: (MonadSnap m, Language a)
-            => a              -- ^ a default language.
-            -> m a
-getLanguage def =
-  do
-    lang <- readLanguageCookie <|> acceptLanguage <|> return def
-    setContentLanguage lang 
-    return lang
