@@ -4,6 +4,8 @@ Language handling for Snap.
 Support for determining the client's prefered language using
 the Accept-Language header or using suffixes to the requested URI.
 
+Try this example:
+
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -36,3 +38,7 @@ handler :: Lang -> Snap ()
 handler EN = writeBS "hello"
 handler SV = writeBS "hej"
 ```
+
+You can now access `/hello` and you will get an answer depending on your Accept-Language header.
+
+Or you can access `/hello.en-GB` or `/hello.sv-SE` directly.
