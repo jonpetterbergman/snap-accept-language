@@ -159,11 +159,11 @@ getSuffixLanguage rangeMapping =
           putRequest $ r { rqPathInfo = rqPathInfo' }
           return val
 
--- | Change, or remove, the language suffix of an url.
+-- | Change, or remove, the language suffix of an URI.
 switchSuffixLanguage :: Eq a
                      => RangeMapping a
-                     -> ByteString -- ^ The URL.
-                     -> Maybe a    -- ^ The language to be appended to the URL, or Nothing to remove language suffix.
+                     -> ByteString -- ^ The URI.
+                     -> Maybe a    -- ^ The language to be appended to the URI, or Nothing to remove language suffix.
                      -> ByteString
 switchSuffixLanguage rangeMapping uri lang = maybe (addSuffix lang path) (addSuffix lang . fst) $ matchSuffix path $ suffixes rangeMapping
   where (path,params)    = BC.break ((==) '?') uri
