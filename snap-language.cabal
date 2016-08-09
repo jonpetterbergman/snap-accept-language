@@ -30,10 +30,6 @@ source-repository this
   location: http://github.com/jonpetterbergman/snap-accept-language
   tag:      v0.1.0.1
 
-flag wai-snap
-  description: use wai-snap instead of snap-core
-  default: False
-
 library
   exposed-modules:     Snap.Language
   -- other-modules:       
@@ -42,9 +38,6 @@ library
                        bytestring >=0.10.6.0 && < 0.11,
                        attoparsec >= 0.13.0.1 && < 0.14,
                        containers >= 0.5.6.2 && < 0.6
-  if flag(wai-snap)
-    build-depends:     wai-snap >= 0.1.0.0
-  else
-    build-depends:     snap-core >= 0.9.8.0 && < 1.1
+  build-depends:       snap-core >= 0.9.8.0 && < 1.1
   hs-source-dirs:      src
   default-language:    Haskell2010
