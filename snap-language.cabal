@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                snap-language
-version:             0.1.0.0
+version:             0.1.0.2
 synopsis:            Language handling for Snap
 description:        
   Language handling for Snap.
@@ -28,8 +28,11 @@ source-repository head
 source-repository this
   type:     git
   location: http://github.com/jonpetterbergman/snap-accept-language
-  tag:      v0.1.0.0
+  tag:      v0.1.0.2
 
+flag wai-snap
+  description: use wai-snap instead of snap-core
+  default: False
 
 library
   exposed-modules:     Snap.Language
@@ -38,7 +41,10 @@ library
   build-depends:       base >=4.8 && <4.9,
                        bytestring >=0.10.6.0 && < 0.11,
                        attoparsec >= 0.13.0.1 && < 0.14,
-                       snap-core >= 0.9.8.0 && < 0.10,
                        containers >= 0.5.6.2 && < 0.6
+  if flag(wai-snap)
+    build-depends:     wai-snap >= 0.1.0.0
+  else
+    build-depends:     snap-core >= 0.9.8.0 && < 1.1
   hs-source-dirs:      src
   default-language:    Haskell2010
